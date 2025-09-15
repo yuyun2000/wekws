@@ -3,17 +3,20 @@
 
 . ./path.sh
 
-stage=$1
-stop_stage=$2
-num_keywords=2
+stage=1
+stop_stage=4
+num_keywords=1
 
-config=conf/ds_tcn.yaml
+config=conf/mdtc-fbank.yaml
 norm_mean=true
 norm_var=true
-gpus="0,1"
+gpus="0"
 
 checkpoint=
-dir=exp/ds_tcn
+dir=exp/mdtc
+
+noise_lmdb=/hy-tmp/noi-lmdb
+reverb_lmdb=/hy-tmp/rir-lmdb
 
 num_average=30
 score_checkpoint=$dir/avg_${num_average}.pt
@@ -58,7 +61,7 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     --in_scp data/train/wav.scp \
     --out_cmvn data/train/global_cmvn
 
-  for x in train dev test; do
+  for x in train dev; do
     tools/wav_to_duration.sh --nj 8 data/$x/wav.scp data/$x/wav.dur
     tools/make_list.py data/$x/wav.scp data/$x/text \
       data/$x/wav.dur data/$x/data.list
@@ -85,6 +88,8 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
       --seed 666 \
       --dict ./dict \
       $cmvn_opts \
+      ${reverb_lmdb:+--reverb_lmdb $reverb_lmdb} \
+      ${noise_lmdb:+--noise_lmdb $noise_lmdb} \
       ${checkpoint:+--checkpoint $checkpoint}
 fi
 
@@ -95,36 +100,6 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     --src_path $dir  \
     --num ${num_average} \
     --val_best
-  result_dir=$dir/test_$(basename $score_checkpoint)
-  mkdir -p $result_dir
-  python wekws/bin/score.py \
-    --config $dir/config.yaml \
-    --test_data data/test/data.list \
-    --gpu 0 \
-    --batch_size 256 \
-    --checkpoint $score_checkpoint \
-    --score_file $result_dir/score.txt \
-    --dict ./dict \
-    --num_workers 8
-
-  for keyword in `tail -n +2 dict/words.txt`; do
-    python wekws/bin/compute_det.py \
-      --keyword $keyword \
-      --test_data data/test/data.list \
-      --window_shift $window_shift \
-      --score_file $result_dir/score.txt \
-      --stats_file $result_dir/stats.${keyword}.txt
-  done
-
-  # plot det curve
-  python wekws/bin/plot_det_curve.py \
-      --keywords_dict dict/dict.txt \
-      --stats_dir  $result_dir \
-      --xlim 2 \
-      --x_step 1 \
-      --ylim 5 \
-      --y_step 1 \
-      --figure_file $result_dir/det.png
 fi
 
 
